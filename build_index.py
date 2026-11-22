@@ -76,7 +76,10 @@ def main():
         db.commit(); db.close(); print(f'partial: {n_art} articles added, {n_doc} passages total, {time.time()-t0:.0f}s'); return
     db.execute('CREATE INDEX IF NOT EXISTS doc_tnorm ON doc(tnorm, ord)')
     db.execute("INSERT INTO fts(fts) VALUES('optimize')")
-    db.commit(); db.close()
+    db.commit()
+    from add_titles import add_titles   # folded title table used by qa.py
+    print('titles', add_titles(db))
+    db.close()
     os.replace(tmp, a.out)
     print(f'done: {n_art} articles, {n_doc} passages -> {a.out} ({os.path.getsize(a.out)/1e6:.0f} MB) in {time.time()-t0:.0f}s')
 

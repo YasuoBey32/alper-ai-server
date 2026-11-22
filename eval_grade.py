@@ -16,7 +16,12 @@ lm = None
 if '--lm' in sys.argv:
     from lm import AlperLM
     lm = AlperLM(os.path.join(here, 'model/alper.pt'), os.path.join(here, 'model/tokenizer.json'))
-br = Brain(QA(SqliteIndex(db)), lm)
+if db.endswith('.aoi'):
+    sys.path.insert(0, os.path.join(here, '..', 'offline'))
+    from aoi import AoiIndex
+    br = Brain(QA(AoiIndex(db)), lm)
+else:
+    br = Brain(QA(SqliteIndex(db)), lm)
 items = json.load(open(os.path.join(here, 'eval_set.json'), encoding='utf-8'))
 
 

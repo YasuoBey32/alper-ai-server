@@ -37,6 +37,7 @@ BLOCK_MOD = {'eski', 'ilk', 'onceki', 'gecici', 'kultur', 'kis', 'yaz', 'yeni', 
 BLOCK_BEFORE_X = {'zamanlar', 'zamanki', 'eskiden', 'onceden', 'zaman', 'donemde', 'doneminde', 'iken'}
 ORDINAL = re.compile(r'^(\d+|ikinci|ucuncu|dorduncu|besinci|altinci|yedinci|sekizinci|dokuzuncu|onuncu)$')
 GEN = {'nin', 'nun', 'in', 'un', 'n'}
+CONNECT = {'da', 'de', 've', 'van', 'von', 'bin', 'ibn', 'el', 'al', 'of'}   # inside names: Leonardo da Vinci, Romeo ve Juliet
 ORD_WORDS = {'birinci': 'i.', 'ikinci': 'ii.', 'ucuncu': 'iii.', 'dorduncu': 'iv.'}
 
 TOK = re.compile(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛûÉéÀ-ÖØ-öø-ÿ]+")
@@ -47,6 +48,8 @@ WHERE_CUE = re.compile(r"\b(bulunan|bulunur|bulunmaktadir|yer alan|yer alir|yer 
                        r"|ilinde|ilcesinde|bolgesinde|kitasinda|ulkesinde|kentinde|sehrinde|eyaletinde|illeri)\b")
 YEAR = re.compile(r'\b(1\d{3}|20\d{2}|\d{1,3}0?)\b')
 
+JUNK = re.compile(r"\{\{|\}\}|\s\|\s|bakınız|karıştırılmamalıdır|Ayrıca bakınız|Ana madde")
+TEMPORAL_Q = re.compile(r"\d|\b(eski|eskiden|once|onceki|onceden|ilk|gecmiste|zamaninda|doneminde|iken)\b")
 NOUN_SUF = ['larinin', 'lerinin', 'larini', 'lerini', 'larin', 'lerin', 'lari', 'leri', 'sinin', 'sunun', 'sini', 'sunu',
             'yini', 'yunu', 'inin', 'unun', 'ini', 'unu', 'nin', 'nun', 'dir', 'tir', 'dur', 'tur', 'si', 'su', 'yi', 'yu',
             'ni', 'nu', 'in', 'un', 'de', 'da', 'te', 'ta', 'i', 'u']
@@ -145,7 +148,9 @@ class Q:
         last_pos = ws[-1][4] if ws else -1
         self.terms = []
         for w in ws:
-            is_verb = w[4] == last_pos and not w[2] and len(ws) > 1
+            is_verb = (w[4] == last_pos and not w[2] and len(ws) > 1 and not w[3]
+                       and bool(re.search(r'(d|t)(i|u)$|m(i|u)s$|(a|e)r$', w[1]))
+                       and not any(w[1].startswith(m) for m in MEASURE))
             self.terms.append(Term(w[0], w[1], w[2] and w[4] > 0 or w[2] and w[3], w[3], w[4], verb=is_verb))
         self.req = [t for t in self.terms if not t.weak] or list(self.terms)
         self.sup = [stem(fold(m.group(1))) for m in re.finditer(r"\ben\s+([a-zçğıöşü]{3,})", q, re.I)
@@ -183,14 +188,18 @@ class Q:
 
 
 # ------------------------------------------------------------------ sentences
+WIKILINK = re.compile(r'\[\[(?:[^\]|]*\|)?([^\]]*)\]\]')
+
+
 def split_sentences(text):
+    text = WIKILINK.sub(r'\1', text)   # "[[hedef|metin]]" left in a few dump passages -> "metin"
     out = []
     for part in SENT_SPLIT.split(text):
         if out and re.search(r'(\b\w{1,2}|\b[IVXLC]+|\b(Dr|Prof|Doç|vb|vs|bkz|yy|St|Av|Op|Yrd))\.$', out[-1]):
             out[-1] += ' ' + part
         else:
             out.append(part)
-    return [s.strip() for s in out if len(s.strip()) > 15]
+    return [s.strip() for s in out if len(s.strip()) > 15 and not JUNK.search(s)]
 
 
 def clean(s):
@@ -216,8 +225,8 @@ def base_title(t):
 
 
 def words_with_case(s):
-    """[(original token, folded token)] — same segmentation as toks()."""
-    return [(t, fold(t)) for t in TOK.findall(s)]
+    """[(original token, folded token, start, end)] — same segmentation as toks()."""
+    return [(m.group(), fold(m.group()), m.start(), m.end()) for m in TOK.finditer(s)]
 
 
 def lenient_eq(a, b):
@@ -277,13 +286,16 @@ class QA:
         """Article for one span of question words: exact folded title, 'title (…)', suffix variant; None if only a
         disambiguation page matches ('disamb' returned instead)."""
         keys = [' '.join(w[1] for w in span)]
-        if any(w[3] for w in span):
-            keys.append(' '.join(w[5] for w in span))           # "İstanbul'un Fethi"
+        if any("'" in w[5] for w in span[:-1]):
+            keys = [' '.join(w[5] for w in span[:-1]) + ' ' + span[-1][1]]   # only "İstanbul'un Fethi" itself
+        elif any(w[3] for w in span):
+            keys.append(' '.join(w[5] for w in span))
         if span[0][1] in ORD_WORDS:
             keys.append(' '.join([ORD_WORDS[span[0][1]]] + [w[1] for w in span[1:]]))
         last = span[-1]
         if not last[3] and stem(last[1]) != last[1] and len(span) == 1 and span[0][4] == 0 or not last[2] and not last[3]:
-            for v in {stem(last[1]), last[1][:-1] if last[1][-1] in _V and len(last[1]) >= 5 else None} - {None, last[1]}:
+            vs = [stem(last[1]), last[1][:-1] if last[1][-1] in _V and len(last[1]) >= 5 else None]
+            for v in [x for i, x in enumerate(vs) if x and x != last[1] and x not in vs[:i]]:
                 keys.append(' '.join([w[1] for w in span[:-1]] + [v]))   # "Telefonu" -> telefon
         disamb = False
         for key in keys:
@@ -332,8 +344,6 @@ class QA:
                     continue
                 if not all(w[:1].isupper() or w[:1].isdigit() for w in TOK.findall(d['title'])):
                     continue  # "Cep telefonu" is not a name for "Telefon"
-                if not span[0][2] or span[0][4] == 0 and not span[0][3] and not q.want_def and not q.want_who:
-                    pass
             else:
                 if i < 0:
                     if not any(lenient_eq(a, b) for a in tt for b in seq):
@@ -354,14 +364,14 @@ class QA:
         return None
 
     def resolve(self, q):
-        words = [w for w in q.words if (w[1] not in STOP or w[1] in ORD_WORDS) and w[1] not in WH_END]
+        words = [w for w in q.words if (w[1] not in STOP or w[1] in ORD_WORDS or w[1] in CONNECT) and w[1] not in WH_END]
         spans = []
         for n in range(min(5, len(words)), 0, -1):
             for i in range(0, len(words) - n + 1):
                 span = words[i:i + n]
                 if any(span[k + 1][4] != span[k][4] + 1 for k in range(n - 1)):
                     continue
-                if all(w[1] in WEAK for w in span) or span[-1][1] in STOP:
+                if all(w[1] in WEAK for w in span) or span[-1][1] in STOP or span[0][1] in CONNECT:
                     continue
                 if n == 1 and (not (span[0][2] or q.want_def) or len(span[0][1]) < 2):
                     continue
@@ -421,7 +431,7 @@ class QA:
         ws = [w for w in q.words if w[1] not in STOP]
         spans, cur = [], []
         for w in ws:
-            if w[2] and (not cur or w[4] == cur[-1][4] + 1):
+            if w[2] and (not cur or w[4] == cur[-1][4] + 1 and not cur[-1][3] and '\'' not in cur[-1][5]):
                 cur.append(w)
             else:
                 if cur:
@@ -481,7 +491,8 @@ class QA:
         """Yields ('subject', title) for "T…, X'in R(dir)" and ('name', Z) for "X'in R Z"."""
         plain = strip_paren(sent)
         wc = words_with_case(plain)
-        tk = [f for _, f in wc]
+        tk = [w[1] for w in wc]
+        caps = [w[0][:1].isupper() for w in wc]
         out = []
         starts = []
         for xi in self._x_positions(tk, X):
@@ -500,20 +511,22 @@ class QA:
                 if t in ('ulkenin', 'ulkesinin', 'sehrin', 'kentin', 'ilin', 'devletin'):
                     starts.append((i + 1, False))
         for k, comma in starts:
-            m = self._match_r(tk, k, rterms, comma)
+            m = self._match_r(tk, k, rterms, comma, caps)
             if m is None:
                 continue
             hend, rem = m
             if rem not in ('', 'i', 'si', 'u', 'su', 'dir', 'idir', 'sidir', 'tir', 'dur', 'udur', 'sudur', 'tur', 'ir', 'ur'):
                 continue
-            z = self._proper_after(wc[hend + 1:hend + 5]) if rem in ('', 'i', 'si', 'u', 'su') else None
+            z = self._proper_after(plain, wc, hend) if rem in ('', 'i', 'si', 'u', 'su') else None
             if z:
                 if fold(z).split()[0] in X or tk[hend + 1] in GEN:
                     continue
                 if hend + 1 + len(z.split()) < len(tk) and tk[hend + len(z.split()) + 1] in GEN:
                     continue  # "başkenti Ankara'nın ..." -> not an answer
                 out.append(('name', z))
-            elif not own and btt and tk[:len(btt)] == btt:
+            elif not own and btt and tk[:len(btt)] == btt and not any(lenient_eq(a, b) for a in btt for b in X):
+                if hend + 1 < len(wc) and plain[wc[hend][3]:wc[hend + 1][2]].strip() == ',' and caps[hend + 1]:
+                    continue  # "T, X'in başkenti, Ottava'da …": an appositive about another place
                 out.append(('subject', bt))
         return out
 
@@ -532,17 +545,12 @@ class QA:
         return out
 
     def _comma_after(self, plain, wc, idx):
-        # is the token at idx directly followed by a comma in the plain sentence?
-        pos = 0
-        for i, (o, _) in enumerate(wc):
-            pos = plain.find(o, pos)
-            if i == idx:
-                after = plain[pos + len(o):pos + len(o) + 2]
-                return after.startswith(',')
-            pos += len(o)
+        """is the token at idx directly followed by a comma in the plain sentence?"""
+        if 0 <= idx < len(wc):
+            return plain[wc[idx][3]:wc[idx][3] + 1] == ','
         return False
 
-    def _match_r(self, tk, k, rterms, comma_ok):
+    def _match_r(self, tk, k, rterms, comma_ok, caps):
         """R words in order within 6 tokens after the possessor; returns (index of head token, suffix after stem)."""
         j, i = 0, k
         limit = k + 6 + len(rterms)
@@ -561,6 +569,8 @@ class QA:
                     return None  # another possessor in between
                 if ORDINAL.match(t) or t in BLOCK_MOD:
                     return None
+                if caps[i] and not comma_ok:
+                    return None  # another named place in between ("Brezilya'nın … Pernambuco Eyaleti başkenti")
             i += 1
         if j < len(rterms):
             return None
@@ -569,11 +579,15 @@ class QA:
         alt = next(a for a in stem_alts(head.st) if t.startswith(a)) if not head.exact else t
         return last_hit, t[len(alt):]
 
-    def _proper_after(self, nxt):
-        """Capitalised name right after the relation word: 'başkenti Ankara'da' -> 'Ankara'."""
+    def _proper_after(self, plain, wc, hend):
+        """Capitalised name right after the relation word: 'başkenti Ankara'da' -> 'Ankara'.
+        Only plain spaces may separate the words ("başkenti, Arap…" and "Delhi'de" end the name)."""
         out = []
-        for o, f in nxt:
-            if o[:1].isupper():
+        for i in range(hend + 1, min(len(wc), hend + 5)):
+            o, f, st, _ = wc[i]
+            if plain[wc[i - 1][3]:st] != ' ':
+                break
+            if o[:1].isupper() and f not in MONTHS:
                 out.append(o)
             elif out and f in ('de', 'da') and len(out) < 3:
                 out.append(o)
@@ -605,7 +619,8 @@ class QA:
         agent_t = q.terms[-1] if q.want_who and q.terms and q.terms[-1].verb and q.terms[-1].pos not in span else None
         agent = agent_t is not None
         rem = [t for t in rem if t is not agent_t]
-        full_seqs = [toks(base_title(title))] + [[w[1] for w in q.words if w[4] in span]]
+        qspan = [w[1] for w in q.words if w[4] in span]
+        full_seqs = [qspan] if len(qspan) >= 2 else [toks(base_title(title)), qspan]
         event = any(t.verb for t in rem) or q.want_when
         best = None
         for p in self.ix.passages(title, 40):
@@ -630,13 +645,11 @@ class QA:
                 if q.sup and not self._sup_ok(tk, q):
                     continue
                 if agent:
-                    names = [o for o, f in words_with_case(strip_paren(s))[1:] if o[:1].isupper() and f not in ent_toks]
+                    names = [w[0] for w in words_with_case(strip_paren(s))[1:] if w[0][:1].isupper() and w[1] not in ent_toks]
                     vst = stem(agent_t.f, verb=True)
                     vst = vst if len(vst) >= 4 else agent_t.f[:3]
                     if not names or not ('tarafindan' in tk or any(t.startswith(vst) for t in tk)):
                         continue
-                if q.rel and not self._rel_near(tk, q, title):
-                    continue
                 sc = (sum(1 for t in weak if t.hit(tk)) + (2 if lead_pos else 0) + (1 if mentions else 0)
                       - 0.05 * si - 0.3 * p.get('ord', 0))
                 if best is None or sc > best[0]:
@@ -654,26 +667,12 @@ class QA:
             return False
         return True
 
-    def _rel_near(self, tk, q, title):
-        """For "X'in R" asked inside X's own article: R must be there and not owned by another possessor."""
-        R = q.rel['R']
-        head = Term(R[-1], R[-1], False, False, 0)
-        for i, t in enumerate(tk):
-            if tok_match(t, head.st, False):
-                prev = tk[max(0, i - 3):i]
-                if any(p in GEN for p in prev) and not any(lenient_eq(x, y) for x in tk[max(0, i - 4):i] for y in q.rel['X']):
-                    continue
-                if any(p in BLOCK_MOD or ORDINAL.match(p) for p in prev[-1:]):
-                    continue
-                return True
-        return False
-
     # ---------- main
     def answer(self, question):
         q = Q(question)
         if not q.terms:
             return {'confident': False, 'q': q}
-        if q.rel:
+        if q.rel and not TEMPORAL_Q.search(q.qf):
             r = self.relation(q)
             if r:
                 return {'confident': True, 'kind': 'relation', 'answer': r['answer'], 'doc': r['doc'],

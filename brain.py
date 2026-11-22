@@ -8,8 +8,8 @@
 import ast, datetime, operator, random, re
 from zoneinfo import ZoneInfo
 from textnorm import fold
-from search import score_external, content_terms
-from qa import render
+from search import score_external
+from qa import render, Q
 
 TZ = ZoneInfo('Europe/Istanbul')
 UNSURE = 'Bundan emin değilim.'
@@ -88,7 +88,7 @@ def classify(text):
         return 'thanks'
     if CREATIVE.search(f1) and not re.search(r'\b(nedir|kimdir|ne zaman|nerede|kac)\b', f1):
         return 'creative'
-    if QUESTION.search(f1) or len(content_terms(text)) >= 1 and len(words) <= 6:
+    if QUESTION.search(f1) or len(Q(text).terms) >= 1 and len(words) <= 6:
         return 'factual'
     return 'creative'
 
@@ -97,10 +97,11 @@ def resolve_followup(text, prev_user):
     """'Peki nüfusu kaç?' after 'Ankara nerede?' -> search with the previous topic as context."""
     if not prev_user:
         return text
-    terms = content_terms(text)
-    has_proper = any(t[2] for t in terms)
+    terms = Q(text).terms
+    has_proper = any(t.cap for t in terms)
     if not has_proper and len(text.split()) <= 6 and re.search(r'\b(peki|onun|bunun|onu|orasi|oranin|o\b|nufusu|baskenti|ne zaman|nerede|kac)', fold(text)):
-        keep = [t[0] for t in content_terms(prev_user) if t[2]] or [t[0] for t in content_terms(prev_user)][:2]
+        pt = Q(prev_user).terms
+        keep = [t.surf for t in pt if t.cap] or [t.surf for t in pt][:2]
         return (' '.join(keep) + "'in " + text) if keep else text
     return text
 

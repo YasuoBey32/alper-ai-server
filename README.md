@@ -1,84 +1,92 @@
+<div align="center">
+
+# 🤖 Alper AI — Sunucu
+
+### 🇹🇷 Yerli yapay zeka — Yusuf Alper tarafından sıfırdan geliştirildi
+
+*"Görünmeyeni gören, frekansı okuyan, sistemi saldırgandan önce anlayan bir zihin."*
+
+![Yerli](https://img.shields.io/badge/%F0%9F%87%B9%F0%9F%87%B7-Yerli%20%26%20Milli-E30A17?style=for-the-badge)
+![Model](https://img.shields.io/badge/Model-S%C4%B1f%C4%B1rdan%20GPT%20(6%2C9M)-6f42c1?style=for-the-badge)
+![3. taraf model](https://img.shields.io/badge/3.%20taraf%20model-YOK-success?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-SSE%20Ak%C4%B1%C5%9F-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Render](https://img.shields.io/badge/Render-Ücretsiz-46E3B7?style=for-the-badge&logo=render&logoColor=white)
+
+</div>
+
 ---
-title: Alper AI
-emoji: 🤖
-colorFrom: indigo
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
----
 
-# Alper AI — sunucu (Hugging Face Space, Docker)
+## ✨ Nedir?
 
-Alper AI uygulamasının çevrimiçi beyni. **Hiçbir üçüncü taraf dil modeli kullanmaz**:
+**Alper AI**, Android uygulaması *Alper AI*'ın çevrimiçi beynidir. Gemini, ChatGPT, Llama, Qwen… **hiçbirini kullanmaz.**
+Tokenizer'ından dil modeline, arama motorundan cevap bulucusuna kadar her parça **sıfırdan, bizim tarafımızdan** yazıldı ve eğitildi.
 
-| Parça | Ne | Nerede |
+> 🎯 İlke: **Yanlış cevap vermektense "Bundan emin değilim" demek.** Bilgi cevapları her zaman kaynak cümlenin aynısıdır ve kaynağı gösterilir.
+
+## 🧠 Mimari
+
+```
+ 📱 Alper AI (Android)
+        │  OpenAI uyumlu istek (SSE akış)
+        ▼
+ ⚡ FastAPI  ──►  🧭 Beyin (brain.py) ── soru türünü ayırır
+                     ├── 👋 Selam / kimlik / saat / hesap   → kurallı şablonlar
+                     ├── 📚 Bilgi sorusu  → 🔎 Kendi Vikipedi aramamız (BM25, SQLite FTS5)
+                     │                     → ✅ qa.py: kaynak cümleyi AYNEN aktarır
+                     └── ✍️ Serbest metin → 🤖 Alper Çekirdek (sıfırdan GPT)
+```
+
+| 🧩 Parça | 🔧 Ne | 📂 Dosya |
 |---|---|---|
-| Alper Çekirdek | Sıfırdan eğitilmiş GPT (6,9 M parametre, kendi BPE tokenizer'ı) — sohbet / serbest metin | `model/alper.pt`, `model/tokenizer.json`, `model.py`, `lm.py` |
-| Bilgi dizini | Türkçe Vikipedi üzerinde kendi BM25 aramamız (SQLite FTS5, ~1,37 M pasaj) | `data/wiki.db` (`build_index.py` ile üretilir), `search.py` |
-| Beyin | Soru türünü ayırır; bilgi sorularında cevabı kaynak cümleden **aynen** alır, emin değilse "Bundan emin değilim" der | `brain.py` |
-| API | OpenAI uyumlu `POST /v1/chat/completions` (SSE akış), `GET /v1/models`, `GET /health` | `app.py` |
+| 🔤 **Kendi tokenizer'ımız** | Türkçe için sıfırdan eğitilmiş BPE | `model/tokenizer.json` |
+| 🤖 **Alper Çekirdek** | Sıfırdan eğitilmiş GPT, 6,9 M parametre; sunucuda **numpy** ile çalışır (torch yok, ~140 MB RAM) | `model.py`, `lm.py`, `lm_torch.py` |
+| 🔎 **Kendi arama motorumuz** | Türkçe Vikipedi üzerinde BM25 (SQLite FTS5) — 534 bin makale, 1,37 M pasaj | `build_index.py`, `sqlite_index.py` |
+| ✅ **Soru-cevap** | Kurallı cevap bulucu (uygulamadaki çevrimdışı Java sürümüyle birebir aynı: 489/489) | `qa.py` |
+| 🧭 **Beyin** | Yönlendirme, güven eşiği, "emin değilim" | `brain.py` |
+| 🌐 **API** | `POST /v1/chat/completions` (SSE), `GET /v1/models`, `GET /health` | `app.py` |
 
-## Nasıl cevap verir
+📊 **Değerlendirme (v4.1):** 69 soruda 55 doğru · 14 "emin değilim" · **0 yanlış** — ayrıntılar: [`EVAL_RESULTS.md`](EVAL_RESULTS.md)
 
-* Selam / teşekkür / "sen kimsin" / saat-tarih / aritmetik → sabit ve doğru şablonlar (tarih Europe/Istanbul).
-* Bilgi sorusu → Vikipedi dizininde arama. Bir cümle (makale başlığı bağlam sayılarak) sorudaki **tüm gerekli
-  kelimeleri** içermiyorsa cevap "kesin" sayılmaz. Kesinse cümle aynen aktarılır ve kaynak gösterilir; değilse
-  "Bundan emin değilim." + (varsa) en ilgili alıntı açıkça "doğrulanmadı" diye işaretlenir.
-* Uygulama "Web'de doğrula" açıkken kendi bulduğu canlı kaynakları `alper_sources` alanında yollar; sunucu bunları da
-  aynı kurala göre değerlendirir (güncel sorular: fiyat, kur, hava, haber…).
-* Serbest metin (şiir, öneri, sohbet) → Alper Çekirdek üretir ve cevabın altına "deneysel, bilgi kaynağı değil" notu eklenir.
-  Model küçük olduğu için bu metinler çoğu zaman tutarsızdır; bilgi cevapları ondan **gelmez**.
+## 🚀 Çalıştırma
 
-## API
+### ☁️ Render (ücretsiz)
+Bu depo Render'a doğrudan bağlanır (`Dockerfile`). Büyük dosyalar (model + 1,6 GB Vikipedi dizini) herkese açık
+🤗 [Yasuo850k/alper-ai-data](https://huggingface.co/datasets/Yasuo850k/alper-ai-data) deposundan imaj derlenirken indirilir.
 
-```
-POST /v1/chat/completions
-Authorization: Bearer <ALPER_API_KEY>      (ya da  X-Alper-Key: <ALPER_API_KEY>)
-{"model":"alper-ai","stream":true,"temperature":0.7,
- "messages":[{"role":"user","content":"Everest Dağı'nın yüksekliği kaç metre?"}],
- "alper_sources":[{"title":"…","url":"https://…","snippet":"…"}]   // isteğe bağlı
-}
-```
-Akışın ilk parçasında ek bir alan gelir: `"alper": {"kind": "wiki|web|unsure|lm|smalltalk|identity|time|math",
-"sources": [{"title","url","snippet","origin"}]}`. Cevaptaki `[1]` gibi numaralar bu listeye karşılık gelir.
-Standart OpenAI istemcileri bu alanı yok sayar.
+> 😴 Ücretsiz sunucu 15 dk boşta kalınca uyur; ilk istek ~1 dakika sürebilir.
 
-## Hugging Face Space olarak yayınlama
-
-1. huggingface.co → **New Space** → ad: `alper-ai` (adres `https://<kullanıcı>-alper-ai.hf.space` olur), SDK: **Docker**,
-   donanım: *CPU basic (ücretsiz)* yeterli.
-2. Space → **Settings → Variables and secrets → New secret**: `ALPER_API_KEY` = uzun rastgele bir parola
-   (ör. `python -c "import secrets;print(secrets.token_urlsafe(32))"`).
-3. Bu klasörü Space deposuna gönder (`model/alper.pt` 28 MB olduğu için git-lfs gerekir):
-   ```bash
-   git clone https://huggingface.co/spaces/<kullanıcı>/alper-ai && cd alper-ai
-   git lfs install && git lfs track "*.pt"
-   cp -r /path/to/apk/server/* /path/to/apk/server/.dockerignore .
-   git add . && git commit -m "Alper AI sunucusu" && git push
-   ```
-4. İlk derleme ~10 dk sürer (Vikipedi dökümü indirilir ve dizin kurulur, ~1,6 GB). Bittiğinde
-   `https://<kullanıcı>-alper-ai.hf.space/health` → `{"status":"ok","wiki_index":true,...}`.
-5. Uygulamada **Ayarlar → Sunucu**: adresi ve `ALPER_API_KEY` değerini gir → **Bağlantıyı test et**.
-
-Not: Ücretsiz Space'ler 48 saat kullanılmazsa uyur; ilk istekte uyanması 1-2 dakika sürebilir (uygulama bunu söyler).
-
-## Yerelde çalıştırma
-
+### 💻 Yerelde
 ```bash
 pip install -r requirements.txt
-# dizin: iki Vikipedi parçasını indirip kur (≈4 dk)
-python build_index.py data/wiki_0.parquet data/wiki_1.parquet --out data/wiki.db
-ALPER_API_KEY=deneme uvicorn app:app --port 7860
-curl -N -H 'Authorization: Bearer deneme' -H 'Content-Type: application/json' \
-  -d '{"stream":true,"messages":[{"role":"user","content":"Fotosentez nedir?"}]}' localhost:7860/v1/chat/completions
+python fetch_data.py                     # model + Vikipedi dizinini indirir
+uvicorn app:app --port 10000
 ```
-Büyük derleme adımları zaman sınırına takılırsa `--no-finalize` / `--append` ile parça parça kurulabilir.
 
-## Modeli güncelleme
+### 🧪 Dene
+```bash
+curl -N -H 'Content-Type: application/json' \
+  -d '{"stream":true,"messages":[{"role":"user","content":"Türkiye'\''nin başkenti neresi?"}]}' \
+  http://localhost:10000/v1/chat/completions
+```
+İsteğe bağlı: `ALPER_API_KEY` ayarlanırsa `Authorization: Bearer <anahtar>` gerekir.
 
-Yeni bir eğitim checkpoint'i (`ai/ckpt_sft.pt`) için: `python export_ckpt.py ../../ai/ckpt_sft.pt model/alper.pt`.
-Model boyutu (katman, genişlik, bağlam) büyüse bile yapılandırma checkpoint içindeki `cfg` alanından okunur.
+## 📜 Lisans notu
+Vikipedi içeriği CC BY-SA 4.0'dır; bu yüzden cevaplarda kaynak bağlantısı her zaman verilir.
 
-Ortam değişkenleri: `ALPER_API_KEY`, `WIKI_DB` (data/wiki.db), `MODEL_PATH`, `TOKENIZER_PATH`, `TORCH_THREADS` (2), `PORT` (7860).
-Vikipedi içeriği CC BY-SA 4.0 lisanslıdır; cevaplarda kaynak bağlantısı bu yüzden her zaman verilir.
+---
+
+<div align="center">
+
+### 👨‍💻 Geliştirici: **Yusuf Alper**
+
+*"Disiplinle şekillenen, merakla büyüyen bir mühendislik zihni."*
+
+[![Site](https://img.shields.io/badge/🌐-yusufalper.com.tr-0A66C2?style=flat-square)](https://yusufalper.com.tr)
+[![GitHub](https://img.shields.io/badge/GitHub-YasuoBey32-181717?style=flat-square&logo=github)](https://github.com/YasuoBey32)
+[![Instagram](https://img.shields.io/badge/Instagram-yyusufalp32-E4405F?style=flat-square&logo=instagram&logoColor=white)](https://instagram.com/yyusufalp32)
+[![Telegram](https://img.shields.io/badge/Telegram-yyusufalp32-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/yyusufalp32)
+
+📱 Tüm uygulamalarım: [YasuoBey32/alper-apps](https://github.com/YasuoBey32/alper-apps)
+
+</div>
