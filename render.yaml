@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: alper-ai
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ALPER_API_KEY
+        sync: false

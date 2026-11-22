@@ -1,0 +1,26 @@
+# Alper AI server — Hugging Face Space (Docker SDK). Everything served here is ours:
+#   * model/alper.pt + model/tokenizer.json : our from-scratch GPT (Alper Çekirdek)
+#   * data/wiki.db                          : our BM25 (SQLite FTS5) index over Turkish Wikipedia
+# No third-party language model is downloaded or run.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HOME=/home/user PORT=7860
+RUN useradd -m -u 1000 user
+WORKDIR /home/user/app
+
+COPY --chown=user requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY --chown=user . .
+
+# Build the Wikipedia index at image build time (≈4 min, ≈1.6 GB) unless a prebuilt data/wiki.db was committed.
+# Source: the public Wikimedia dump "wikimedia/wikipedia" (20231101.tr), plain text only.
+ARG WIKI_BASE=https://huggingface.co/datasets/wikimedia/wikipedia/resolve/main/20231101.tr
+RUN mkdir -p data && if [ ! -f data/wiki.db ]; then \
+      python -c "import urllib.request as u; [u.urlretrieve('${WIKI_BASE}/train-0000%d-of-00002.parquet' % i, 'data/wiki_%d.parquet' % i) for i in (0, 1)]" && \
+      python build_index.py data/wiki_0.parquet data/wiki_1.parquet --out data/wiki.db && \
+      rm -f data/wiki_*.parquet ; fi && chown -R user:user data
+
+USER user
+EXPOSE 7860
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]

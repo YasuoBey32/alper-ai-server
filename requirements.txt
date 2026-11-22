@@ -1,0 +1,5 @@
+# Deploy build (free 512 MB hosts): numpy inference, no torch / pyarrow.
+fastapi>=0.115
+uvicorn>=0.32
+tokenizers>=0.21
+numpy>=1.26
