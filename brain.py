@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from textnorm import fold
 from search import score_external
 from qa import render, Q
+import live as livekb
 
 TZ = ZoneInfo('Europe/Istanbul')
 UNSURE = 'Bundan emin değilim.'
@@ -25,6 +26,9 @@ QUESTION = re.compile(r'(\?|\b(ne|neler|nedir|nelerdir|kim|kimdir|kimin|nerede|n
                       r'nasil|neden|niye|mi|mu|midir|mudur|hakkinda|what|who|where|when|which|how|why)\b)')
 CREATIVE = re.compile(r'\b(siir|hikaye|masal|fikra|sarki|sozler|mektup|yaz\b|yazar misin|olustur|uydur|tavsiye|oner|onerir|ipucu|fikir|'
                       r'ozetle|cevir|duzelt|kod|program yaz|plan|tarif)\b')
+DEFQ = re.compile(r'(\bnedir\b|\bne demek|\bkimdir\b|\bne ise yar|\bneye yarar|\bne icin kullanilir|\bfaydalari|\bzararlari|'
+                  r'\banlat|\bacikla|\bbilgi ver|\bhakkinda|\bnelerdir\b|\btanimi\b|\bbiliyor musun|\bbilir misin)')
+NUMQ = re.compile(r'\b(kac|kactir|ne zaman|hangi yil|hangi tarih|yuksekligi|uzunlugu|nufusu|yuzolcumu)\b')
 DAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar']
 MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
 
@@ -86,6 +90,8 @@ def classify(text):
         return 'greet'
     if THANKS.match(f1) and len(words) <= 4:
         return 'thanks'
+    if DEFQ.search(f1) and not re.search(r'\b(siir|hikaye|masal|fikra|sarki|mektup|kod)\b', f1):
+        return 'factual'
     if CREATIVE.search(f1) and not re.search(r'\b(nedir|kimdir|ne zaman|nerede|kac)\b', f1):
         return 'creative'
     if QUESTION.search(f1) or len(Q(text).terms) >= 1 and len(words) <= 6:
@@ -107,7 +113,7 @@ def resolve_followup(text, prev_user):
 
 
 class Answer:
-    def __init__(self, kind, text=None, sources=None, stream=None):
+    def __init__(self, kind, text=None, sources=None, stream=None):  # noqa
         self.kind, self.text, self.sources, self.stream = kind, text, sources or [], stream
 
 
@@ -150,9 +156,43 @@ class Brain:
 
     # ---- factual: only copy from sources
     def _factual(self, q, query, web_sources, prefix):
-        live = bool(LIVE.search(fold(q)))
+        live_q = bool(LIVE.search(fold(q)))
+        fq = fold(q)
+        # 1) definition-style questions ("BCAA nedir", "kreatin anlat"): live Turkish Wikipedia lead, typo/synonym-fixed
+        if DEFQ.search(fq) and not live_q:
+            try:
+                hit = livekb.lookup(query)
+            except Exception:
+                hit = None
+            if hit:
+                return Answer('wiki', prefix + hit['text'], hit['sources'])
         res = self.ix.answer(query) if self.ix else {'confident': False}
+        if not res.get('confident'):
+            # 2) not in our index: rank sentences from live Wikipedia full texts + web snippets with our own rules
+            try:
+                extra = livekb.context_sources(query)
+            except Exception:
+                extra = []
+            if NUMQ.search(fq):
+                units = [u for u in ('metre', 'kilometre', 'km', 'kg', 'derece', 'nufus', 'yil', 'yuzyil') if re.search(r'\b' + u, fq)]
+                def ok(x):
+                    fx = fold(x)
+                    if not re.search(r'\d', x):
+                        return False
+                    if 'ne zaman' in fq or 'hangi yil' in fq:
+                        return bool(re.search(r'\b1\d{3}|\b20\d{2}|\b\d{1,2}\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)', fx))
+                    return all(re.search(r'\d[\d.,]*\s*' + u, fx) for u in units if u in ('metre', 'kilometre', 'km', 'kg', 'derece'))
+                extra = [{**e, 'snippet': ' '.join(x for x in livekb.SENT.split(e['snippet']) if ok(x))} for e in extra]
+            web_sources = list(web_sources or []) + extra
+            if DEFQ.search(fq) and not res.get('doc'):
+                try:
+                    hit = livekb.lookup(query)
+                except Exception:
+                    hit = None
+                if hit:
+                    return Answer('wiki', prefix + hit['text'], hit['sources'])
         ext = score_external(query, web_sources)
+        live = live_q
         sources, parts = [], []
 
         def cite(src):
@@ -191,7 +231,7 @@ class Brain:
             n = cite({'title': f"Vikipedi: {doc['title']}", 'url': doc['url'], 'snippet': res['sentence'][:300], 'origin': 'alper-wiki'})
             return Answer('unsure', prefix + f'{UNSURE} Sorunun tam cevabını kaynaklarımda doğrulayamadım. '
                                              f'Konuyla ilgili bulduğum bilgi şu (cevap olarak doğrulanmadı):\n\n> {res["sentence"]} [{n}]', sources)
-        ext_part = [(s, sx) for c, s, sx in ext if c >= 0.5 and sx]
+        ext_part = [(s, sx) for c, s, sx in ext if c >= 0.5 and sx and s.get('origin') not in ('web', 'wikipedia-live')]
         if ext_part:
             s, sx = ext_part[0]
             n = cite({**s, 'origin': s.get('origin', 'web')})
@@ -215,8 +255,32 @@ class Brain:
         turns = turns[-3:]
         if self.lm is None:
             return Answer('unsure', 'Şu an serbest metin üretemiyorum (model yüklenmedi). Bilgi sorularını yine de cevaplayabilirim.')
-        return Answer('lm', stream=lambda cancel: self.lm.stream(turns, temp=max(0.2, min(1.2, temperature)), cancel=cancel),
-                      text=LM_NOTE)
+        out = ''
+        try:
+            for d in self.lm.stream(turns, temp=max(0.2, min(0.8, temperature)), cancel=None):
+                out += d
+                if len(out) > 700:
+                    break
+        except Exception:
+            out = ''
+        if _junk(out):
+            return Answer('unsure', 'Bu tür serbest/yaratıcı metinlerde henüz iyi değilim: kendi küçük modelim hâlâ gelişiyor ve '
+                                    'saçma bir şey yazmak yerine dürüst olmayı tercih ediyorum. Bilgi sorularında çok daha iyiyim; '
+                                    'örneğin "Kreatin nedir?", "BCAA ne işe yarar?" ya da "Atatürk kimdir?" diye sorabilirsin.')
+        return Answer('lm', out.strip() + LM_NOTE)
+
+
+def _junk(t):
+    t = (t or '').strip()
+    if len(t) < 15:
+        return True
+    letters = sum(c.isalpha() for c in t)
+    if letters / max(1, len(t)) < 0.7:
+        return True
+    if re.search(r'(.{1,4})\1{4,}', t):
+        return True
+    words = re.findall(r'\w+', t)
+    return len(words) < 4 or len(set(words)) / len(words) < 0.4
 
 
 LM_NOTE = '\n\n_— Alper Çekirdek (sıfırdan eğitilmiş deneysel model) yazdı; bilgi kaynağı olarak kullanma._'

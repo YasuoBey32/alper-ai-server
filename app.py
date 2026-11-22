@@ -12,11 +12,13 @@ from qa import QA
 
 API_KEY = os.environ.get('ALPER_API_KEY', '')
 WIKI_DB = os.environ.get('WIKI_DB', 'data/wiki.db')
-MODEL_PATH = os.environ.get('MODEL_PATH', 'model/alper.pt')
+MODEL_PATH = os.environ.get('MODEL_PATH', 'model/alper.npz')
 TOK_PATH = os.environ.get('TOKENIZER_PATH', 'model/tokenizer.json')
 MODEL_NAME = 'alper-ai'
 
-app = FastAPI(title='Alper AI', version='4.1')
+app = FastAPI(title='Alper AI', version='4.2')
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['GET', 'POST', 'OPTIONS'], allow_headers=['*'])
 state = {'index': None, 'lm': None, 'errors': []}
 
 
@@ -64,7 +66,7 @@ def _err(status, msg, code):
 @app.get('/health')
 def health():
     lm = state['lm']
-    return {'status': 'ok', 'name': 'Alper AI', 'model': MODEL_NAME,
+    return {'status': 'ok', 'name': 'Alper AI', 'version': '4.2', 'model': MODEL_NAME, 'live_wikipedia': True,
             'wiki_index': state['index'] is not None,
             'core_model': None if lm is None else {'params': lm.params, 'ctx': lm.cfg.ctx, 'layers': lm.cfg.layers, 'd': lm.cfg.d},
             'auth': bool(API_KEY), 'errors': state['errors']}

@@ -90,3 +90,12 @@ Vikipedi içeriği CC BY-SA 4.0'dır; bu yüzden cevaplarda kaynak bağlantısı
 📱 Tüm uygulamalarım: [YasuoBey32/alper-apps](https://github.com/YasuoBey32/alper-apps)
 
 </div>
+
+## 🚀 v4.2 — Canlı bilgi
+* 🌐 **Canlı Türkçe Vikipedi** (`live.py`): "BCAA nedir", "kreatin anlat" gibi sorulara anında, kaynaklı cevap. Cümleler Vikipedi'den **aynen** alınır, uydurma yok.
+* ✍️ **Yazım hatası / eş anlamlı düzeltme**: `bca → BCAA`, `creatine → Kreatin`, `whey → Peynir altı suyu proteini`…
+* 🩺 Sağlık/takviye cevaplarında "tıbbi tavsiye değildir" notu.
+* 🔓 CORS açık: iPhone web uygulaması (yusufalper.com.tr/alper-ai/app) doğrudan bağlanır.
+* 📊 Değerlendirme: `EVAL_v42.md`.
+
+Yusuf Alper tarafından geliştirildi.
