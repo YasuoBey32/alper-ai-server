@@ -148,7 +148,7 @@ async def chat(req: Request):
                              headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
-BUDGET = float(os.environ.get('ALPER_BUDGET', '3.8'))   # v4.2.2: every answer starts within ~4 s
+BUDGET = float(os.environ.get('ALPER_BUDGET', '3.0'))   # v4.2.2: every answer starts within ~3 s
 
 
 async def _answer_fast(messages, web, temp):
