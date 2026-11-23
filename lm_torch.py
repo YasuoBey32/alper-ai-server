@@ -6,7 +6,7 @@ import os, threading, torch, torch.nn.functional as F
 from tokenizers import Tokenizer
 from model import GPT, Config
 
-U, A, S = '<\u200b|kullanici|>', '<\u200b|asistan|>', '<\u200b|son|>'
+U, A, S = '<' + '|kullanici|>', '<' + '|asistan|>', '<' + '|son|>'   # v4.3: real special tokens (no zero-width char)
 
 
 def load_config(ckpt, sd):

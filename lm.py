@@ -8,7 +8,7 @@ import json, os, threading
 import numpy as np
 from tokenizers import Tokenizer
 
-U, A, S = '<\u200b|kullanici|>', '<\u200b|asistan|>', '<\u200b|son|>'
+U, A, S = '<' + '|kullanici|>', '<' + '|asistan|>', '<' + '|son|>'   # v4.3: real special tokens (no zero-width char)
 
 
 class Cfg:

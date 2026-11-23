@@ -324,8 +324,11 @@ FACTS = [
      ('nüfus_yılı', 'nüfus_tarihi'), 'nüfusu', 'kişi'),
     (re.compile(r'\b(kac metre|yuksekligi|yuksekliği|ne kadar yuksek)\b'), ('yükseklik', 'yükseklik_m', 'zirve', 'rakım'), (), 'yüksekliği', 'metre'),
     (re.compile(r'\b(yuzolcumu|yuz olcumu|alani kac)\b'), ('yüzölçümü', 'alan_toplam', 'alan', 'yüz_ölçümü'), (), 'yüzölçümü', 'km²'),
+    # v4.3: text facts (no digits needed)
+    (re.compile(r'\b(baskent\w*)\b'), ('başkent', 'başkenti', 'baskent'), (), 'başkenti', ''),
 ]
-_NUMWORDS = re.compile(r'\s*\b(nufus\w*|kac kisi( var| yasiyor)?|kac metre|yuksekligi|ne kadar yuksek|yuzolcumu|yuz olcumu|alani kac|kac(tir)?|nedir|ne kadar)\b\s*')
+_TEXT_LABELS = {'başkenti', 'konumu'}
+_NUMWORDS = re.compile(r'\s*\b(nufus\w*|kac kisi( var| yasiyor)?|kac metre|yuksekligi|ne kadar yuksek|yuzolcumu|yuz olcumu|alani kac|kac(tir)?|nedir|ne kadar|baskent\w*|neresi(dir)?|nerede(dir)?|hangi ulkede|hangi sehir(dir)?)\b\s*')
 
 
 def _clean_val(v):
@@ -347,10 +350,13 @@ def infobox_fact(question):
         if not rx.search(fq):
             continue
         subject = _NUMWORDS.sub(' ', fq).strip(' ?.!')
-        subject = re.sub(r"(?<=\w)(da|de|ta|te|nin|nin|in|un|nun)$", '', subject).strip() if len(subject) > 4 else subject
+        subject = re.sub(r"['’]\w*$", '', subject).strip()
+        subject = re.sub(r"(?<=\w)(da|de|ta|te|nin|nın|in|ın|un|nun)$", '', subject).strip() if len(subject) > 4 else subject
         if not subject:
             return None
         p, _ = find_wiki(subject + ' nedir')
+        if not p:
+            p, _ = find_wiki(question)
         if not p:
             return None
         try:
@@ -360,9 +366,12 @@ def infobox_fact(question):
         except Exception:
             return None
         fields = {}
-        for m in re.finditer(r'^\|\s*([^=\n]+?)\s*=\s*(.*)$', w, re.M):
+        for m in re.finditer(r'^\|[ \t]*([^=\n]+?)[ \t]*=[ \t]*(.*)$', w, re.M):
             fields[m.group(1).strip().lower()] = _clean_val(m.group(2))
-        val = next((fields[k] for k in keys if fields.get(k) and re.search(r'\d', fields[k])), None)
+        numeric = label not in _TEXT_LABELS
+        if not numeric:
+            fields = {k: re.split(r'\s*(?:\||\{\{|\(|<)', v)[0].strip() for k, v in fields.items()}
+        val = next((fields[k] for k in keys if fields.get(k) and (re.search(r'\d', fields[k]) or not numeric) and len(fields[k]) < 120), None)
         if not val:
             return None
         year = next((fields[k] for k in year_keys if fields.get(k)), '')
