@@ -27,12 +27,11 @@ def _load():
         if os.path.exists(WIKI_DB):
             import sqlite3
             c = sqlite3.connect(WIKI_DB)
-            if not c.execute("SELECT name FROM sqlite_master WHERE name='ttl'").fetchone():
-                from add_titles import add_titles  # older index without the title table (≈5 s)
-                add_titles(c)
+            has_ttl = c.execute("SELECT name FROM sqlite_master WHERE name='ttl'").fetchone()
             c.close()
+            if not has_ttl:   # v4.2.1: the title table is built into the image (Dockerfile); never at startup (OOM on 512 MB)
+                state['errors'].append('wiki: ttl table missing (rebuild image)')
             state['index'] = QA(SqliteIndex(WIKI_DB))
-            state['index'].answer("Türkiye'nin başkenti neresidir?")  # warm up
         else:
             state['errors'].append(f'wiki index missing: {WIKI_DB}')
     except Exception as e:  # pragma: no cover
