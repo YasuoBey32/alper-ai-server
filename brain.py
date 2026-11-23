@@ -166,6 +166,14 @@ class Brain:
     def _factual(self, q, query, web_sources, prefix):
         live_q = bool(LIVE.search(fold(q)))
         fq = fold(q)
+        # 0) v4.2.3: population / height / area -> the number from the article's infobox
+        if not live_q:
+            try:
+                hit = livekb.infobox_fact(query)
+            except Exception:
+                hit = None
+            if hit:
+                return Answer('wiki', prefix + hit['text'], hit['sources'])
         # 1) definition-style questions ("BCAA nedir", "kreatin anlat"): live Turkish Wikipedia lead, typo/synonym-fixed
         if DEFQ.search(fq) and not live_q:
             try:
@@ -186,6 +194,10 @@ class Brain:
                 def ok(x):
                     fx = fold(x)
                     if not re.search(r'\d', x):
+                        return False
+                    if 'nufus' in fq and 'nufus' not in fx:
+                        return False
+                    if re.search(r'kac metre|yuksekligi', fq) and not re.search(r'yuksek|zirve|rakim', fx):
                         return False
                     if 'ne zaman' in fq or 'hangi yil' in fq:
                         return bool(re.search(r'\b1\d{3}|\b20\d{2}|\b\d{1,2}\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)', fx))

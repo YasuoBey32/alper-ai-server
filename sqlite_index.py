@@ -6,8 +6,21 @@ class SqliteIndex:
     def __init__(self, path):
         self.path = path
         self.local = threading.local()
+        self.lock = threading.Lock()
+        self.shared = None
 
     def db(self):
+        # v4.2.3: ONE shared connection with a big page cache (Render's disk is slow; many small caches = many slow reads)
+        with self.lock:
+            if self.shared is None:
+                c = sqlite3.connect(f'file:{self.path}?mode=ro&immutable=1', uri=True, check_same_thread=False)
+                c.execute('PRAGMA cache_size=-96000')   # 96 MB
+                c.execute('PRAGMA mmap_size=0')
+                c.execute('PRAGMA temp_store=MEMORY')
+                self.shared = c
+            return self.shared
+
+    def _old_db(self):
         c = getattr(self.local, 'c', None)
         if c is None:
             c = sqlite3.connect(f'file:{self.path}?mode=ro&immutable=1', uri=True, check_same_thread=False)

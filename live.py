@@ -316,3 +316,60 @@ if __name__ == '__main__':
         print('==', q, '->', topic_of(q), correct(topic_of(q))[0])
         r = lookup(q)
         print(r['text'] if r else None)
+
+
+# ---- v4.2.3: numbers straight from the article's infobox (nüfus, yükseklik, alan) — fast and exact
+FACTS = [
+    (re.compile(r'\b(nufus\w*|kac kisi)\b'), ('nüfus_toplam', 'nüfus', 'toplam_nüfus', 'nüfus_şehir', 'nüfus_kent', 'nufus'),
+     ('nüfus_yılı', 'nüfus_tarihi'), 'nüfusu', 'kişi'),
+    (re.compile(r'\b(kac metre|yuksekligi|yuksekliği|ne kadar yuksek)\b'), ('yükseklik', 'yükseklik_m', 'zirve', 'rakım'), (), 'yüksekliği', 'metre'),
+    (re.compile(r'\b(yuzolcumu|yuz olcumu|alani kac)\b'), ('yüzölçümü', 'alan_toplam', 'alan', 'yüz_ölçümü'), (), 'yüzölçümü', 'km²'),
+]
+_NUMWORDS = re.compile(r'\s*\b(nufus\w*|kac kisi( var| yasiyor)?|kac metre|yuksekligi|ne kadar yuksek|yuzolcumu|yuz olcumu|alani kac|kac(tir)?|nedir|ne kadar)\b\s*')
+
+
+def _clean_val(v):
+    v = re.sub(r'<ref[^>]*/>|<ref.*?</ref>|<!--.*?-->', '', v, flags=re.S)
+    v = re.sub(r'\{\{[^{}]*\}\}', '', v)
+    v = re.sub(r'\[\[(?:[^|\]]*\|)?([^\]]*)\]\]', r'\1', v)
+    return html.unescape(v).replace('\xa0', ' ').strip(" '\t")
+
+
+def _fmt(v):
+    if re.fullmatch(r'\d{4,}', v):
+        return f'{int(v):,}'.replace(',', '.')
+    return v
+
+
+def infobox_fact(question):
+    fq = fold(question)
+    for rx, keys, year_keys, label, unit in FACTS:
+        if not rx.search(fq):
+            continue
+        subject = _NUMWORDS.sub(' ', fq).strip(' ?.!')
+        subject = re.sub(r"(?<=\w)(da|de|ta|te|nin|nin|in|un|nun)$", '', subject).strip() if len(subject) > 4 else subject
+        if not subject:
+            return None
+        p, _ = find_wiki(subject + ' nedir')
+        if not p:
+            return None
+        try:
+            d = json.loads(_get(WIKI + '?' + urllib.parse.urlencode({'action': 'parse', 'page': p['title'], 'prop': 'wikitext', 'section': 0,
+                                                                   'format': 'json', 'formatversion': 2, 'redirects': 1})))
+            w = d['parse']['wikitext']
+        except Exception:
+            return None
+        fields = {}
+        for m in re.finditer(r'^\|\s*([^=\n]+?)\s*=\s*(.*)$', w, re.M):
+            fields[m.group(1).strip().lower()] = _clean_val(m.group(2))
+        val = next((fields[k] for k in keys if fields.get(k) and re.search(r'\d', fields[k])), None)
+        if not val:
+            return None
+        year = next((fields[k] for k in year_keys if fields.get(k)), '')
+        val = _fmt(val)
+        if unit and unit not in val and not re.search(r'[a-zA-Z²]', val):
+            val = f'{val} {unit}'
+        text = f"**{p['title']}** {label}: **{val}**" + (f" ({year})" if year else '') + ' [1]'
+        return {'kind': 'wiki-live', 'title': p['title'], 'text': text,
+                'sources': [{'title': f"Vikipedi: {p['title']}", 'url': p['url'], 'snippet': text, 'origin': 'wikipedia-live'}]}
+    return None

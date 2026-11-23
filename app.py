@@ -47,6 +47,18 @@ _load()
 brain = Brain(state['index'], state['lm'])
 
 
+def _warm():
+    # v4.2.3: touch the title index and FTS pages once so the first real questions are fast
+    for q in ('Türkiye başkenti neresi', 'Bursa nüfusu kaç', 'Atatürk kimdir', 'İstanbul ne zaman fethedildi'):
+        try:
+            state['index'] and state['index'].answer(q)
+        except Exception:
+            pass
+
+
+threading.Thread(target=_warm, daemon=True).start()
+
+
 def _authorized(req: Request) -> bool:
     if not API_KEY:
         return True
@@ -159,7 +171,7 @@ async def _answer_fast(messages, web, temp):
     full = asyncio.ensure_future(asyncio.to_thread(brain.answer, messages, web, temp))
     users = [m for m in messages if m.get('role') == 'user']
     q = rewrite(_text(users[-1].get('content'))) if users else ''
-    quick = asyncio.ensure_future(asyncio.to_thread(livekb.lookup, q)) if q else None
+    quick = asyncio.ensure_future(asyncio.to_thread(lambda: livekb.infobox_fact(q) or livekb.lookup(q))) if q else None
     try:
         return await asyncio.wait_for(asyncio.shield(full), BUDGET)
     except asyncio.TimeoutError:
