@@ -160,6 +160,7 @@ async def chat(req: Request):
                              headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+_FULL_LOCK = threading.Lock()
 BUDGET = float(os.environ.get('ALPER_BUDGET', '3.0'))   # v4.2.2: every answer starts within ~3 s
 
 
@@ -168,7 +169,14 @@ async def _answer_fast(messages, web, temp):
     within BUDGET seconds, answer with the quick result (or an honest 'not sure') instead of making the user wait."""
     import live as livekb
     from brain import Answer, _text, rewrite
-    full = asyncio.ensure_future(asyncio.to_thread(brain.answer, messages, web, temp))
+    def _full():   # v4.3.3: one heavy pipeline at a time (a timed-out one keeps running; stacking them OOMs 512 MB)
+        if not _FULL_LOCK.acquire(blocking=False):
+            raise RuntimeError('busy')
+        try:
+            return brain.answer(messages, web, temp)
+        finally:
+            _FULL_LOCK.release()
+    full = asyncio.ensure_future(asyncio.to_thread(_full))
     users = [m for m in messages if m.get('role') == 'user']
     q = rewrite(_text(users[-1].get('content'))) if users else ''
     quick = asyncio.ensure_future(asyncio.to_thread(lambda: livekb.infobox_fact(q) or livekb.lookup(q))) if q else None
