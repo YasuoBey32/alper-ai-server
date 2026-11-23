@@ -10,7 +10,7 @@ class SqliteIndex:
     def db(self):
         c = getattr(self.local, 'c', None)
         if c is None:
-            c = sqlite3.connect(f'file:{self.path}?mode=ro', uri=True, check_same_thread=False)
+            c = sqlite3.connect(f'file:{self.path}?mode=ro&immutable=1', uri=True, check_same_thread=False)
             # v4.2.1: keep SQLite's own memory small on the 512 MB free host
             c.execute('PRAGMA cache_size=-8000')   # 8 MB page cache
             c.execute('PRAGMA mmap_size=0')

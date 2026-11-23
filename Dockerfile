@@ -9,9 +9,9 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY . .
 ARG ALPER_DATA_REV=main
-RUN ALPER_DATA_REV=${ALPER_DATA_REV} python fetch_data.py
-# v4.2.1: build the title lookup table at image build time (doing it at startup ran out of memory on the free plan)
-RUN python -c "import sqlite3; from add_titles import add_titles; c=sqlite3.connect('data/wiki.db'); print(add_titles(c), 'titles')"
+# v4.2.1: download + build the title table in ONE layer (a second layer would duplicate the 1.6 GB db);
+# at runtime the db is opened read-only so it is never copied into the container's writable (RAM-backed) layer
+RUN ALPER_DATA_REV=${ALPER_DATA_REV} python fetch_data.py && python -c "import sqlite3; from add_titles import add_titles; c=sqlite3.connect('data/wiki.db'); print(add_titles(c), 'titles')"
 EXPOSE 10000
 # fetch_data.py again at start is a no-op when the files are baked in (fallback if the image was built without them)
 CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --limit-concurrency 8 --timeout-keep-alive 5"]

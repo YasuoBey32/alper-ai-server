@@ -26,7 +26,7 @@ def _load():
     try:
         if os.path.exists(WIKI_DB):
             import sqlite3
-            c = sqlite3.connect(WIKI_DB)
+            c = sqlite3.connect(f'file:{WIKI_DB}?mode=ro&immutable=1', uri=True)   # read-only: a read-write open copies the 1.6 GB file into RAM-backed storage on Render (OOM)
             has_ttl = c.execute("SELECT name FROM sqlite_master WHERE name='ttl'").fetchone()
             c.close()
             if not has_ttl:   # v4.2.1: the title table is built into the image (Dockerfile); never at startup (OOM on 512 MB)
