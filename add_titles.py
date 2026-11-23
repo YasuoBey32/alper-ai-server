@@ -18,7 +18,7 @@ def add_titles(db):
     rows = n
     db.execute('CREATE INDEX ttl_f ON ttl(tfold)')
     db.commit()
-    return len(rows)
+    return rows
 
 if __name__ == '__main__':
     c = sqlite3.connect(sys.argv[1] if len(sys.argv) > 1 else 'data/wiki.db')
