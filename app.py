@@ -169,6 +169,11 @@ async def _answer_fast(messages, web, temp):
     within BUDGET seconds, answer with the quick result (or an honest 'not sure') instead of making the user wait."""
     import live as livekb
     from brain import Answer, _text, rewrite
+    from brain import classify
+    _u = [m for m in messages if m.get('role') == 'user']
+    if _u and classify(_text(_u[-1].get('content'))) in ('math', 'greet', 'thanks', 'time', 'identity'):
+        return await asyncio.to_thread(brain.answer, messages, web, temp)   # v4.3.4: cheap answers never wait for the heavy lock
+
     def _full():   # v4.3.3: one heavy pipeline at a time (a timed-out one keeps running; stacking them OOMs 512 MB)
         if not _FULL_LOCK.acquire(blocking=False):
             raise RuntimeError('busy')
