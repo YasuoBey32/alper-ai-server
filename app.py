@@ -93,7 +93,7 @@ async def chat(req: Request):
     temp = float(body.get('temperature', 0.7) or 0.7)
     stream = bool(body.get('stream'))
     cid, created = 'chatcmpl-' + uuid.uuid4().hex[:24], int(time.time())
-    ans = await asyncio.to_thread(brain.answer, messages, web, temp)
+    ans = await _answer_fast(messages, web, temp)
     meta = {'kind': ans.kind, 'sources': ans.sources}
 
     if not stream:
@@ -117,7 +117,7 @@ async def chat(req: Request):
                 if await req.is_disconnected():
                     return
                 yield chunk({'content': piece})
-                await asyncio.sleep(0.012)
+                await asyncio.sleep(0.004)
         else:
             cancel = threading.Event()
             q: asyncio.Queue = asyncio.Queue()
@@ -146,6 +146,36 @@ async def chat(req: Request):
 
     return StreamingResponse(gen(), media_type='text/event-stream',
                              headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+BUDGET = float(os.environ.get('ALPER_BUDGET', '3.8'))   # v4.2.2: every answer starts within ~4 s
+
+
+async def _answer_fast(messages, web, temp):
+    """Run the full pipeline, and in parallel a quick live-Wikipedia lookup. If the full pipeline is not done
+    within BUDGET seconds, answer with the quick result (or an honest 'not sure') instead of making the user wait."""
+    import live as livekb
+    from brain import Answer, _text, rewrite
+    full = asyncio.ensure_future(asyncio.to_thread(brain.answer, messages, web, temp))
+    users = [m for m in messages if m.get('role') == 'user']
+    q = rewrite(_text(users[-1].get('content'))) if users else ''
+    quick = asyncio.ensure_future(asyncio.to_thread(livekb.lookup, q)) if q else None
+    try:
+        return await asyncio.wait_for(asyncio.shield(full), BUDGET)
+    except asyncio.TimeoutError:
+        pass
+    except Exception:
+        full = None
+    hit = None
+    if quick is not None:
+        try:
+            hit = await asyncio.wait_for(asyncio.shield(quick), 0.6)
+        except Exception:
+            hit = None
+    if hit:
+        return Answer('wiki', hit['text'], hit['sources'])
+    return Answer('unsure', 'Bundan emin değilim. Bu soruyu birkaç saniyede kaynaklarımda doğrulayamadım; '
+                            'soruyu biraz daha açık yazarsan (örneğin "Bursa nüfusu kaç") daha hızlı bulurum.')
 
 
 def _pieces(t):

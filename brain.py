@@ -112,6 +112,13 @@ def resolve_followup(text, prev_user):
     return text
 
 
+def rewrite(q):
+    # v4.2.2: everyday phrasing -> the words Wikipedia uses ("Bursa'da kaç kişi var" -> "Bursa nüfusu kaç")
+    q = re.sub(r"(?i)\b(\w+?)(['’]?(da|de|ta|te))\s+ka[çc]\s+ki[şs]i\s+(var|ya[şs][ıi]yor|ya[şs]ar|ya[şs]amaktad[ıi]r)\b", r"\1 nüfusu kaç", q)
+    q = re.sub(r"(?i)\bka[çc]\s+ki[şs]i\s+(var|ya[şs][ıi]yor|ya[şs]ar)\b", "nüfusu kaç", q)
+    return q
+
+
 class Answer:
     def __init__(self, kind, text=None, sources=None, stream=None):  # noqa
         self.kind, self.text, self.sources, self.stream = kind, text, sources or [], stream
@@ -126,6 +133,7 @@ class Brain:
         if not users:
             return Answer('smalltalk', 'Merhaba! Ben Alper AI. Ne sormak istersin?')
         q = _text(users[-1].get('content'))
+        q = rewrite(q)
         prev = _text(users[-2].get('content')) if len(users) > 1 else ''
         kind = classify(q)
         greet_prefix = 'Merhaba! ' if GREET.match(fold(q)) and kind not in ('greet',) else ''
