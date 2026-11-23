@@ -77,7 +77,7 @@ def _err(status, msg, code):
 @app.get('/health')
 def health():
     lm = state['lm']
-    return {'status': 'ok', 'name': 'Alper AI', 'version': '4.2', 'model': MODEL_NAME, 'live_wikipedia': True,
+    return {'status': 'ok', 'name': 'Alper AI', 'version': '4.3', 'model': MODEL_NAME, 'live_wikipedia': True,
             'wiki_index': state['index'] is not None,
             'core_model': None if lm is None else {'params': lm.params, 'ctx': lm.cfg.ctx, 'layers': lm.cfg.layers, 'd': lm.cfg.d},
             'auth': bool(API_KEY), 'errors': state['errors']}
@@ -186,6 +186,10 @@ async def _answer_fast(messages, web, temp):
             hit = None
     if hit:
         return Answer('wiki', hit['text'], hit['sources'])
+    from brain import classify
+    if q and classify(q) == 'creative':
+        return Answer('unsure', 'Şiir, hikâye gibi serbest metinlerde henüz iyi değilim: kendi küçük modelim hâlâ gelişiyor ve '
+                                'saçma bir şey yazmak yerine dürüst olmayı tercih ediyorum. Bilgi sorularında çok daha iyiyim.')
     return Answer('unsure', 'Bundan emin değilim. Bu soruyu birkaç saniyede kaynaklarımda doğrulayamadım; '
                             'soruyu biraz daha açık yazarsan (örneğin "Bursa nüfusu kaç") daha hızlı bulurum.')
 
