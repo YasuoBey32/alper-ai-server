@@ -77,7 +77,7 @@ def _err(status, msg, code):
 @app.get('/health')
 def health():
     lm = state['lm']
-    return {'status': 'ok', 'name': 'Alper AI', 'version': '4.3', 'model': MODEL_NAME, 'live_wikipedia': True,
+    return {'status': 'ok', 'name': 'Alper AI', 'version': '4.4', 'model': MODEL_NAME, 'live_wikipedia': True,
             'wiki_index': state['index'] is not None,
             'core_model': None if lm is None else {'params': lm.params, 'ctx': lm.cfg.ctx, 'layers': lm.cfg.layers, 'd': lm.cfg.d},
             'auth': bool(API_KEY), 'errors': state['errors']}
@@ -173,6 +173,16 @@ async def _answer_fast(messages, web, temp):
     _u = [m for m in messages if m.get('role') == 'user']
     if _u and classify(_text(_u[-1].get('content'))) in ('math', 'greet', 'thanks', 'time', 'identity'):
         return await asyncio.to_thread(brain.answer, messages, web, temp)   # v4.3.4: cheap answers never wait for the heavy lock
+
+    # v4.4: live data (TCMB exchange rates, open-meteo weather) — keyword-gated, so other questions skip it instantly
+    if _u:
+        import smart
+        try:
+            r = await asyncio.wait_for(asyncio.to_thread(smart.answer_live, _text(_u[-1].get('content'))), 3.0)
+        except Exception:
+            r = None
+        if r:
+            return Answer('live' if r['kind'] == 'live' else 'unsure', r['text'], r.get('sources') or [])
 
     def _full():   # v4.3.3: one heavy pipeline at a time (a timed-out one keeps running; stacking them OOMs 512 MB)
         if not _FULL_LOCK.acquire(blocking=False):
