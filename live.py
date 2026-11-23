@@ -298,11 +298,13 @@ def context_sources(question, n=3):
 
 def lookup(question):
     """Returns {'text','sources','kind'} for a definition-style question, or None (caller says 'Bundan emin değilim')."""
-    p, topic = find_wiki(question)
-    if not p:   # v4.3: "X nerede / neresi / hangi ülkede" -> look up X itself; the lead sentence says where it is
-        bare = re.sub(r"\s*\b(nerede(dir)?|neresi(dir)?|nereden|hangi (ülke|ulke|şehir|sehir|kıta|kita|il)\w*|yer alır|bulunur)\b\s*\??", ' ', question, flags=re.I).strip(' ?.!')
-        if bare and bare != question.strip(' ?.!'):
-            p, topic = find_wiki(bare + ' nedir')
+    # v4.3.2: "X nerede / neresi / hangi ilde" -> look up X itself first (one round-trip); its lead sentence says where it is
+    bare = re.sub(r"\s*\b(nerede(dir)?|neresi(dir)?|nereden|hangi (ülke|ulke|şehir|sehir|kıta|kita|il)\w*|yer alır|bulunur)\b\s*\??", ' ', question, flags=re.I).strip(' ?.!')
+    p = None
+    if bare and bare != question.strip(' ?.!'):
+        p, topic = find_wiki(bare + ' nedir')
+    if not p:
+        p, topic = find_wiki(question)
     note = HEALTH_NOTE if HEALTH.search(fold(question) + ' ' + fold(p['title'] if p else '')) else ''
     if p:
         body = lead_sentences(p['extract'])

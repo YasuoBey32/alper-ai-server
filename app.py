@@ -172,6 +172,7 @@ async def _answer_fast(messages, web, temp):
     users = [m for m in messages if m.get('role') == 'user']
     q = rewrite(_text(users[-1].get('content'))) if users else ''
     quick = asyncio.ensure_future(asyncio.to_thread(lambda: livekb.infobox_fact(q) or livekb.lookup(q))) if q else None
+    t0 = time.monotonic()
     try:
         return await asyncio.wait_for(asyncio.shield(full), BUDGET)
     except asyncio.TimeoutError:
@@ -181,7 +182,7 @@ async def _answer_fast(messages, web, temp):
     hit = None
     if quick is not None:
         try:
-            hit = await asyncio.wait_for(asyncio.shield(quick), 0.6)
+            hit = await asyncio.wait_for(asyncio.shield(quick), max(0.3, 4.4 - (time.monotonic() - t0)))   # v4.3.2: hard cap ~4.5 s
         except Exception:
             hit = None
     if hit:
